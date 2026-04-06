@@ -1,0 +1,365 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enumerações
+enum UserRole {
+  DIRETOR
+  GERENTE
+  COORDENADOR
+  COMPRADOR
+}
+
+enum OpportunityStatus {
+  NOVO
+  EM_ANALISE
+  AGUARDANDO_APROVACAO
+  APROVADO
+  EM_NEGOCIACAO
+  PROPOSTA_ENVIADA
+  FECHADO
+  PERDIDO
+  TRANSFERIDO
+  ARQUIVADO
+}
+
+enum OpportunityType {
+  SUCATEIRO
+  LOTE_SPOT
+  FONTE
+  LEILAO
+  EMPRESA_GERADORA
+}
+
+enum Priority {
+  BAIXA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum ApprovalType {
+  CONDICIONANTE
+  TRANSFERENCIA
+  STATUS_CHANGE
+  DELETE
+  FINANCIAL
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ActivityType {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  NOTE_ADDED
+  CONTACT_MADE
+  MEETING
+  CALL
+  EMAIL
+  VISIT
+  APPROVAL_REQUESTED
+  APPROVAL_GRANTED
+  TRANSFER_REQUESTED
+  TRANSFER_COMPLETED
+}
+
+// Modelos
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  password      String
+  role          UserRole
+  phone         String?
+  region        String?
+  supervisorId  String?
+  avatar        String?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  
+  // Relacionamentos
+  supervisor    User?     @relation("UserSupervisor", fields: [supervisorId], references: [id])
+  subordinates  User[]    @relation("UserSupervisor")
+  
+  opportunitiesCreated  Opportunity[] @relation("CreatedBy")
+  opportunitiesAssigned Opportunity[] @relation("AssignedTo")
+  approvalsRequested    Approval[]    @relation("RequestedBy")
+  approvalsApproved     Approval[]    @relation("ApprovedBy")
+  activities            Activity[]
+  accessCodes           AccessCode[]
+  passwordResets        PasswordReset[]
+  
+  @@map("users")
+}
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  document  String   @unique // CNPJ
+  address   String?
+  city      String?
+  state     String?
+  cep       String?
+  phone     String?
+  email     String?
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("companies")
+}
+
+model Opportunity {
+  id                String            @id @default(uuid())
+  title             String
+  description       String?
+  type              OpportunityType
+  status            OpportunityStatus @default(NOVO)
+  priority          Priority          @default(MEDIA)
+  
+  // Valores
+  estimatedValue    Float
+  currency          String            @default("BRL")
+  
+  // Contato
+  contactName       String
+  contactPhone      String
+  contactEmail      String?
+  contactPosition   String?
+  
+  // Localização
+  address           String
+  city              String
+  state             String
+  cep               String?
+  
+  // Peso
+  estimatedWeight   Float
+  weightUnit        String            @default("kg")
+  
+  // Relacionamentos
+  createdById       String
+  assignedToId      String
+  
+  // Datas
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  expectedCloseDate DateTime?
+  actualCloseDate   DateTime?
+  
+  // Relacionamentos
+  createdBy         User              @relation("CreatedBy", fields: [createdById], references: [id])
+  assignedTo        User              @relation("AssignedTo", fields: [assignedToId], references: [id])
+  
+  materials         Material[]
+  financials        Financial?
+  approvals         Approval[]
+  activities        Activity[]
+  companyInfo       CompanyInfo?
+  
+  @@map("opportunities")
+}
+
+model Material {
+  id                  String    @id @default(uuid())
+  name                String
+  category            String
+  subcategory         String?
+  estimatedQuantity   Float
+  unit                String
+  estimatedUnitValue  Float
+  estimatedTotalValue Float
+  notes               String?
+  
+  opportunityId       String
+  opportunity         Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  
+  @@map("materials")
+}
+
+model Financial {
+  id              String      @id @default(uuid())
+  
+  // Custos
+  operationCost   Float
+  logisticsCost   Float
+  equipmentCost   Float
+  laborCost       Float
+  otherCosts      Float
+  totalCost       Float
+  
+  // Receitas
+  expectedRevenue Float
+  expectedProfit  Float
+  profitMargin    Float
+  roi             Float
+  paybackMonths   Int
+  
+  opportunityId   String      @unique
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  
+  @@map("financials")
+}
+
+model CompanyInfo {
+  id              String    @id @default(uuid())
+  cnpj            String
+  razaoSocial     String
+  nomeFantasia    String?
+  segmento        String
+  volumeMensal    Float
+  contratoType    String
+  
+  opportunityId   String    @unique
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  
+  @@map("company_infos")
+}
+
+model Approval {
+  id              String          @id @default(uuid())
+  type            ApprovalType
+  
+  // Solicitação
+  requestedById   String
+  requestedAt     DateTime        @default(now())
+  requestNotes    String?
+  
+  // Mudanças
+  changes         Json?
+  
+  // Aprovação
+  status          ApprovalStatus  @default(PENDING)
+  approvedById    String?
+  approvedAt      DateTime?
+  approvalNotes   String?
+  
+  // Hierarquia
+  requiredRole    UserRole
+  escalationLevel Int             @default(1)
+  
+  // Relacionamentos
+  opportunityId   String
+  opportunity     Opportunity     @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  requestedBy     User            @relation("RequestedBy", fields: [requestedById], references: [id])
+  approvedBy      User?           @relation("ApprovedBy", fields: [approvedById], references: [id])
+  
+  @@map("approvals")
+}
+
+model Activity {
+  id              String        @id @default(uuid())
+  type            ActivityType
+  description     String
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  followUpDate    DateTime?
+  followUpCompleted Boolean     @default(false)
+  
+  // Relacionamentos
+  opportunityId   String
+  userId          String
+  
+  opportunity     Opportunity   @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id])
+  
+  @@map("activities")
+}
+
+model Source {
+  id            String    @id @default(uuid())
+  name          String
+  type          String    // sucateiro, empresa, cooperativa, leiloeiro, gerador
+  contactName   String
+  phone         String
+  email         String?
+  address       String
+  city          String
+  state         String
+  rating        Float     @default(0)
+  totalDeals    Int       @default(0)
+  totalValue    Float     @default(0)
+  lastContact   DateTime  @default(now())
+  notes         String?
+  tags          String[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@map("sources")
+}
+
+model AccessCode {
+  id            String    @id @default(uuid())
+  email         String
+  name          String
+  code          String    @unique
+  role          UserRole
+  status          String    @default("pending") // pending, used, expired
+  createdAt       DateTime  @default(now())
+  usedAt          DateTime?
+  expiresAt       DateTime?
+  
+  createdById     String
+  createdBy       User      @relation(fields: [createdById], references: [id])
+  
+  @@map("access_codes")
+}
+
+model PasswordReset {
+  id          String    @id @default(uuid())
+  email       String
+  token       String    @unique
+  code        String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("password_resets")
+}
+
+model Application {
+  id              String    @id @default(uuid())
+  fullName        String
+  email           String
+  phone           String
+  cpf             String
+  region          String
+  city            String
+  
+  // Tipo
+  type            String    // comprador, parceiro
+  
+  // Campos específicos de comprador
+  experience      String?
+  hasVehicle      String?
+  currentCompany  String?
+  
+  // Campos específicos de parceiro
+  companyName     String?
+  cnpj            String?
+  companySize     String?
+  monthlyVolume   String?
+  
+  message         String?
+  
+  status          String    @default("pending") // pending, approved, rejected
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@map("applications")
+}
